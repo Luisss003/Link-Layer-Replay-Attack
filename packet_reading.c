@@ -22,11 +22,11 @@ int parse_pcap(char *cfg_file_name){
   read_pcap_global_header(pcap_fd);
   
   create_attack_packets(pcap_fd, cfg_fp);
+
   close(pcap_fd);
   fclose(cfg_fp);
   return 0;
 }
-
 void read_pcap_global_header(int pcap_fd){
   struct pcap_file_header pcaphdr;
   read(pcap_fd, &pcaphdr, sizeof(pcaphdr));
@@ -57,7 +57,6 @@ void read_pcap_global_header(int pcap_fd){
   printf("Linktype = %u", pcaphdr.linktype);
   
 }
-
 void create_attack_packets(int pcap_fd, FILE *cfg_fp){
   struct my_pkthdr pkthdr;
   unsigned char packet_buffer[65535];
@@ -133,7 +132,6 @@ void create_attack_packets(int pcap_fd, FILE *cfg_fp){
 
   }
 }
-
 void read_ip(unsigned char *packet_buffer, config_data cfg_info){
   struct ip_hdr *iphdr;
   
@@ -198,7 +196,7 @@ void read_arp(unsigned char *packet_buffer, config_data cfg_info){
   }
 }
 
-void read_tcp(unsigned int true_hdr_size, unsigned char *packet_buffer){
+void read_tcp(unsigned int true_hdr_size, unsigned char *packet_buffer, config_data cfg_info){
   struct tcp_hdr *tcphdr;
   tcphdr = (struct tcp_hdr *)(packet_buffer + ETH_HDR_LEN + true_hdr_size);
   printf("      TCP\n");
@@ -212,7 +210,7 @@ void read_tcp(unsigned int true_hdr_size, unsigned char *packet_buffer){
     printf("         rep_dst_port = %u\n", (unsigned short)ntohs(tcphdr->th_dport));
     printf("         seq = %u\n", ntohl(tcphdr->th_seq));
     printf("         ack = %u", ntohl(tcphdr->th_ack));
-    printf("   Packet sent");
+    send_packet();
   }
   else{
     printf("         src_port = %u\n", (unsigned short)ntohs(tcphdr->th_sport));
@@ -222,7 +220,6 @@ void read_tcp(unsigned int true_hdr_size, unsigned char *packet_buffer){
   
   }
 }
-
 void read_udp(unsigned int true_hdr_size, unsigned char *packet_buffer){
   struct udp_hdr *udphdr;
   udphdr = (struct udp_hdr *)(packet_buffer + ETH_HDR_LEN + true_hdr_size);
@@ -321,7 +318,6 @@ void read_icmp(unsigned int true_hdr_size, unsigned char *packet_buffer){
           break;
   }
 }
-
 config_data read_cfg(FILE *cfg_fp){
   char *line = NULL;
   size_t len = 0;
@@ -401,3 +397,12 @@ config_data read_cfg(FILE *cfg_fp){
   return cfg_info;
 }
 
+void send_packet(unsigned char *packet_buffer, int len, config_data cfg_info){
+  
+  eth_t *eth;
+  eth = eth_open(cfg_info.interface);
+
+  
+  printf("Sending packet...\n");
+
+}

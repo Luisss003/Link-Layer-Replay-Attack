@@ -9,5 +9,7 @@ void read_arp(unsigned char *);
 void read_tcp(unsigned int, unsigned char *, config_data);
 void read_udp(unsigned int, unsigned char *);
 void read_icmp(unsigned int, unsigned char *);
+config_data read_cfg(FILE *);
+void send_packet(unsigend char *, int, config_data);
 
 #endif
