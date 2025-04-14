@@ -195,12 +195,11 @@ void read_arp(unsigned char *packet_buffer, config_data cfg_info){
       break;
   }
 }
-
 void read_tcp(unsigned int true_hdr_size, unsigned char *packet_buffer, config_data cfg_info){
   struct tcp_hdr *tcphdr;
   tcphdr = (struct tcp_hdr *)(packet_buffer + ETH_HDR_LEN + true_hdr_size);
   printf("      TCP\n");
-  
+
   if((unsigned short)ntohs(tcphdr->th_sport) == (unsigned short)ntohs(cfg_info.attacker_port)){
     printf("         src_port = %u\n", (unsigned short)ntohs(tcphdr->th_sport));
     printf("         dst_port = %u\n", (unsigned short)ntohs(cfg_info.replay_attacker_port));
@@ -210,7 +209,7 @@ void read_tcp(unsigned int true_hdr_size, unsigned char *packet_buffer, config_d
     printf("         rep_dst_port = %u\n", (unsigned short)ntohs(tcphdr->th_dport));
     printf("         seq = %u\n", ntohl(tcphdr->th_seq));
     printf("         ack = %u", ntohl(tcphdr->th_ack));
-    send_packet();
+    send_packet(packet_buffer, ETH_HDR_LEN + ntohs(iphdr->ip_len), cfg_info);
   }
   else{
     printf("         src_port = %u\n", (unsigned short)ntohs(tcphdr->th_sport));
@@ -220,14 +219,14 @@ void read_tcp(unsigned int true_hdr_size, unsigned char *packet_buffer, config_d
   
   }
 }
-void read_udp(unsigned int true_hdr_size, unsigned char *packet_buffer){
+void read_udp(unsigned int true_hdr_size, unsigned char *packet_buffer, config_data cfg_info){
   struct udp_hdr *udphdr;
   udphdr = (struct udp_hdr *)(packet_buffer + ETH_HDR_LEN + true_hdr_size);
   printf("      UDP\n");
   printf("         src_port = %u\n", (unsigned short)ntohs(udphdr->uh_sport));
   printf("         dst_port = %u", (unsigned short)ntohs(udphdr->uh_dport));
 }
-void read_icmp(unsigned int true_hdr_size, unsigned char *packet_buffer){
+void read_icmp(unsigned int true_hdr_size, unsigned char *packet_buffer, config_data cfg_info){
   struct icmp_hdr *icmphdr;
   icmphdr = (struct icmp_hdr *)(packet_buffer + ETH_HDR_LEN + true_hdr_size);
   printf("      ICMP\n");
@@ -397,12 +396,42 @@ config_data read_cfg(FILE *cfg_fp){
   return cfg_info;
 }
 
-void send_packet(unsigned char *packet_buffer, int len, config_data cfg_info){
-  
-  eth_t *eth;
-  eth = eth_open(cfg_info.interface);
+unsigned short checksum(unsigned short *buffer, int number_of_words) {
+  unsigned long sum = 0; // Use a wider type to prevent overflow
 
-  
-  printf("Sending packet...\n");
+  while (number_of_words > 0) {
+      sum = sum + *buffer;
+      buffer = buffer + 1;
+      number_of_words = number_of_words - 1;
+  }
 
+  sum = (sum >> 16) + (sum & 0xFFFF);
+
+  sum = sum + (sum >> 16);
+
+  sum = ~sum;
+
+  // Return the lower 16 bits
+  return (unsigned short)sum;
 }
+
+void send_packet(unsigned char *packet_buffer, int len, config_data cfg_info) {
+  eth_t *eth_interface = eth_open(cfg_info.interface);
+  if (!eth_interface) {
+      fprintf(stderr, "Error opening interface %s\n", cfg_info.interface);
+      return;
+  }
+
+  // Set the source MAC
+  eth_set(eth_interface, &cfg_info.replay_attacker_mac);
+
+  // Actually send the packet
+  if (eth_send(eth_interface, packet_buffer, len) < 0) {
+      perror("eth_send failed");
+  } else {
+      printf("Packet sent\n");
+  }
+
+  eth_close(eth_interface);
+}
+
