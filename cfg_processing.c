@@ -1,5 +1,3 @@
-
-
 #include <string.h>
 #include <arpa/inet.h>
 #include <stdlib.h>
@@ -91,4 +89,3 @@ struct config_data read_cfg(FILE *cfg_fp) {
     free(line);
     return cfg_info;
 }
-
