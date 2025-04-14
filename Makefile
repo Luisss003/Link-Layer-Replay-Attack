@@ -1,5 +1,5 @@
-all: main.c packet_reading.c
-	gcc main.c packet_reading.c -lpcap -ldumbnet -o assign4
+all: main.c packet_reading.c pkt_trans.c cfg_processing.c
+        gcc main.c packet_reading.c pkt_trans.c cfg_processing.c -lpcap -ldumbnet -o attgen 
 
 clean:
-	$(RM) assign4
+        $(RM) attgen
