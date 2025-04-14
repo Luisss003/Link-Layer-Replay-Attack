@@ -7,6 +7,7 @@
 #include "packet_reading.h"
 #include <unistd.h>
 #include <string.h>
+#include "pkt_trans.h"
 
 void print_config(const struct config_data *cfg) {
     char ipbuf[INET_ADDRSTRLEN];
@@ -105,12 +106,13 @@ void create_att_pkt(int pcap_fd, FILE *cfg_fp){
   int firsttime = 1;
   int b_usec, c_usec;
   unsigned int b_sec, c_sec;
-
-  /////////////////////////
   struct config_data cfg_info;
   cfg_info = read_cfg(cfg_fp);
-//  printf("\n\nCONFIG INFO \n");
-//  print_config(&cfg_info);
+
+  if(init_eth(cfg_info.interface) < 0){
+    printf("Error initializing ethernet interface\n");
+    return;
+  }
 
   //First read of packet PCAP header
   while(read(pcap_fd, &pkthdr, sizeof(pkthdr)) != 0){
@@ -149,6 +151,7 @@ void create_att_pkt(int pcap_fd, FILE *cfg_fp){
       ethhdr->eth_dst = cfg_info.replay_victim_mac;
       printf("   rep_src_mac = %s\n", eth_ntoa(&ethhdr->eth_src));
       printf("   rep_dst_mac = %s\n", eth_ntoa(&ethhdr->eth_dst));
+    
     }
     else{
       printf("   src_mac = %s\n", eth_ntoa(&ethhdr->eth_src));
@@ -224,7 +227,6 @@ void read_ip(unsigned char *packet_buffer, struct config_data *cfg_info){
   }
 }
 
-
 void read_arp(unsigned char *packet_buffer){
   struct arp_hdr *arphdr;
   printf("   ARP\n");
@@ -270,6 +272,13 @@ void read_tcp(unsigned int true_hdr_size, unsigned char *packet_buffer, struct c
 
       printf("         rep_src_port = %u\n", ntohs(tcphdr->th_sport));
       printf("         rep_dst_port = %u\n", ntohs(tcphdr->th_dport));
+      struct ip_hdr *iphdr = (struct ip_hdr *)(packet_buffer + ETH_HDR_LEN);
+      ip_checksum(iphdr, ntohs(iphdr->ip_len));
+  
+      // Send the modified packet
+      if (send_modified_packet(packet_buffer, ntohs(iphdr->ip_len) + ETH_HDR_LEN) == 0) {
+          printf("         Packet sent\n");
+      }
   }
 }
 
@@ -280,6 +289,7 @@ void read_udp(unsigned int true_hdr_size, unsigned char *packet_buffer){
   printf("         src_port = %u\n", (unsigned short)ntohs(udphdr->uh_sport));
   printf("         dst_port = %u", (unsigned short)ntohs(udphdr->uh_dport));
 }
+
 void read_icmp(unsigned int true_hdr_size, unsigned char *packet_buffer){
   struct icmp_hdr *icmphdr;
   icmphdr = (struct icmp_hdr *)(packet_buffer + ETH_HDR_LEN + true_hdr_size);
