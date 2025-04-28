@@ -6,7 +6,7 @@
 #include <dumbnet.h> 
 
 struct config_data read_cfg(FILE *);
-
+void print_config(const struct config_data *);
 struct config_data {
     ip_addr_t victim_ip;
     eth_addr_t victim_mac;

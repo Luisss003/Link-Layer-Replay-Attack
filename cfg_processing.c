@@ -10,78 +10,63 @@ struct config_data read_cfg(FILE *cfg_fp) {
     struct config_data cfg_info;
     struct addr tmp_mac;
 
-    // Skip pcap filename
 
-    // Victim IP
     getline(&line, &len, cfg_fp);
     line[strcspn(line, "\n")] = 0;
     inet_pton(AF_INET, line, &cfg_info.victim_ip);
 
-    // Victim MAC
     getline(&line, &len, cfg_fp);
     line[strcspn(line, "\n")] = 0;
     addr_aton(line, &tmp_mac);
     memcpy(&cfg_info.victim_mac, &tmp_mac.addr_eth, sizeof(eth_addr_t));
 
-    // Victim port
     getline(&line, &len, cfg_fp);
     line[strcspn(line, "\n")] = 0;
     cfg_info.victim_port = (uint16_t)atoi(line);
 
-    // Attacker IP
     getline(&line, &len, cfg_fp);
     line[strcspn(line, "\n")] = 0;
     inet_pton(AF_INET, line, &cfg_info.attacker_ip);
 
-    // Attacker MAC
     getline(&line, &len, cfg_fp);
     line[strcspn(line, "\n")] = 0;
     addr_aton(line, &tmp_mac);
     memcpy(&cfg_info.attacker_mac, &tmp_mac.addr_eth, sizeof(eth_addr_t));
 
-    // Attacker port
     getline(&line, &len, cfg_fp);
     line[strcspn(line, "\n")] = 0;
     cfg_info.attacker_port = (uint16_t)atoi(line);
 
-    // Replay victim IP
     getline(&line, &len, cfg_fp);
     line[strcspn(line, "\n")] = 0;
     inet_pton(AF_INET, line, &cfg_info.replay_victim_ip);
 
-    // Replay victim MAC
     getline(&line, &len, cfg_fp);
     line[strcspn(line, "\n")] = 0;
     addr_aton(line, &tmp_mac);
     memcpy(&cfg_info.replay_victim_mac, &tmp_mac.addr_eth, sizeof(eth_addr_t));
 
-    // Replay victim port
     getline(&line, &len, cfg_fp);
     line[strcspn(line, "\n")] = 0;
     cfg_info.replay_victim_port = (uint16_t)atoi(line);
 
-    // Replay attacker IP
     getline(&line, &len, cfg_fp);
     line[strcspn(line, "\n")] = 0;
     inet_pton(AF_INET, line, &cfg_info.replay_attacker_ip);
 
-    // Replay attacker MAC
     getline(&line, &len, cfg_fp);
     line[strcspn(line, "\n")] = 0;
     addr_aton(line, &tmp_mac);
     memcpy(&cfg_info.replay_attacker_mac, &tmp_mac.addr_eth, sizeof(eth_addr_t));
 
-    // Replay attacker port
     getline(&line, &len, cfg_fp);
     line[strcspn(line, "\n")] = 0;
     cfg_info.replay_attacker_port = (uint16_t)atoi(line);
 
-    // Interface
     getline(&line, &len, cfg_fp);
     line[strcspn(line, "\n")] = 0;
     cfg_info.interface = strdup(line);
 
-    // Timing
     getline(&line, &len, cfg_fp);
     line[strcspn(line, "\n")] = 0;
     cfg_info.timing = strdup(line);
@@ -89,3 +74,31 @@ struct config_data read_cfg(FILE *cfg_fp) {
     free(line);
     return cfg_info;
 }
+
+void print_config(const struct config_data *cfg) {
+    char ipbuf[INET_ADDRSTRLEN];
+
+    inet_ntop(AF_INET, &cfg->victim_ip, ipbuf, sizeof(ipbuf));
+    printf("victim_ip: %s\n", ipbuf);
+    printf("victim_mac: %s\n", addr_ntoa((struct addr *)&cfg->victim_mac));
+    printf("victim_port: %u\n", cfg->victim_port);
+
+    inet_ntop(AF_INET, &cfg->attacker_ip, ipbuf, sizeof(ipbuf));
+    printf("attacker_ip: %s\n", ipbuf);
+    printf("attacker_mac: %s\n", addr_ntoa((struct addr *)&cfg->attacker_mac));
+    printf("attacker_port: %u\n", cfg->attacker_port);
+
+    inet_ntop(AF_INET, &cfg->replay_victim_ip, ipbuf, sizeof(ipbuf));
+    printf("replay_victim_ip: %s\n", ipbuf);
+    printf("replay_victim_mac: %s\n", addr_ntoa((struct addr *)&cfg->replay_victim_mac));
+    printf("replay_victim_port: %u\n", cfg->replay_victim_port);
+
+    inet_ntop(AF_INET, &cfg->replay_attacker_ip, ipbuf, sizeof(ipbuf));
+    printf("replay_attacker_ip: %s\n", ipbuf);
+    printf("replay_attacker_mac: %s\n", addr_ntoa((struct addr *)&cfg->replay_attacker_mac));
+    printf("replay_attacker_port: %u\n", cfg->replay_attacker_port);
+
+    printf("interface: %s\n", cfg->interface);
+    printf("timing: %s\n", cfg->timing);
+}
+

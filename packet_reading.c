@@ -8,51 +8,22 @@
 #include <unistd.h>
 #include <string.h>
 #include "pkt_trans.h"
-
-void print_config(const struct config_data *cfg) {
-    char ipbuf[INET_ADDRSTRLEN];
-
-    inet_ntop(AF_INET, &cfg->victim_ip, ipbuf, sizeof(ipbuf));
-    printf("victim_ip: %s\n", ipbuf);
-    printf("victim_mac: %s\n", addr_ntoa((struct addr *)&cfg->victim_mac));
-    printf("victim_port: %u\n", cfg->victim_port);
-
-    inet_ntop(AF_INET, &cfg->attacker_ip, ipbuf, sizeof(ipbuf));
-    printf("attacker_ip: %s\n", ipbuf);
-    printf("attacker_mac: %s\n", addr_ntoa((struct addr *)&cfg->attacker_mac));
-    printf("attacker_port: %u\n", cfg->attacker_port);
-
-    inet_ntop(AF_INET, &cfg->replay_victim_ip, ipbuf, sizeof(ipbuf));
-    printf("replay_victim_ip: %s\n", ipbuf);
-    printf("replay_victim_mac: %s\n", addr_ntoa((struct addr *)&cfg->replay_victim_mac));
-    printf("replay_victim_port: %u\n", cfg->replay_victim_port);
-
-    inet_ntop(AF_INET, &cfg->replay_attacker_ip, ipbuf, sizeof(ipbuf));
-    printf("replay_attacker_ip: %s\n", ipbuf);
-    printf("replay_attacker_mac: %s\n", addr_ntoa((struct addr *)&cfg->replay_attacker_mac));
-    printf("replay_attacker_port: %u\n", cfg->replay_attacker_port);
-
-    printf("interface: %s\n", cfg->interface);
-    printf("timing: %s\n", cfg->timing);
-}
-
+#include "packet_sniffing.h"
+#include <netinet/tcp.h>
 
 int read_cfg_file(char *cgf_file){
   int pcap_fd;
   FILE *cfg_fp;
   char pcap_file_name[100];
 
-  //Open the config file
   cfg_fp = fopen(cgf_file, "r");
   if (cfg_fp == NULL){
     printf("Error opening config file\n");
     return -1;
   }
   
-  //Read first line of cfg file (pcap file name)
   fgets(pcap_file_name, sizeof(pcap_file_name), cfg_fp);
   pcap_file_name[strcspn(pcap_file_name, "\n")] = 0;
-  //Open the pcap
   pcap_fd = open(pcap_file_name, O_RDONLY);
   if (pcap_fd < 0){
     printf("Error opening pcap file\n");
@@ -62,9 +33,7 @@ int read_cfg_file(char *cgf_file){
 
   read_pcap_global_header(pcap_fd);
   create_att_pkt(pcap_fd, cfg_fp);
-  return 0;
-
-  
+  return 0;  
 }
 
 void read_pcap_global_header(int pcap_fd){
@@ -72,6 +41,7 @@ void read_pcap_global_header(int pcap_fd){
   read(pcap_fd, &pcaphdr, sizeof(pcaphdr));
 
   switch (pcaphdr.magic){
+
     case PCAP_MAGIC:
       printf("PCAP_MAGIC\n");
       break;
@@ -94,7 +64,7 @@ void read_pcap_global_header(int pcap_fd){
   printf("GMT to local correction = %u\n", pcaphdr.thiszone);
   printf("Timestamp accuracy = %u\n", pcaphdr.sigfigs);
   printf("Snaplen = %u\n", pcaphdr.snaplen);
-  printf("Linktype = %u", pcaphdr.linktype);
+  printf("Linktype = %u\n", pcaphdr.linktype);
   
 }
 
@@ -113,8 +83,12 @@ void create_att_pkt(int pcap_fd, FILE *cfg_fp){
     printf("Error initializing ethernet interface\n");
     return;
   }
+	
+	if(init_sniffer(cfg_info.interface) < 0){
+		printf("Error initializaing sniffer\n");
+		return;
+	}
 
-  //First read of packet PCAP header
   while(read(pcap_fd, &pkthdr, sizeof(pkthdr)) != 0){
  
     if(firsttime){
@@ -130,20 +104,17 @@ void create_att_pkt(int pcap_fd, FILE *cfg_fp){
       c_usec += 1000000;
     }
 
-    printf("\n\nPacket %u\n", pkt_count);
+    printf("\nPacket %u\n", pkt_count);
     printf("%u.%06u\n", (unsigned)c_sec, (unsigned)c_usec);
     pkt_count++; 
     printf("Captured Packet Length = %d\n", pkthdr.caplen);
     printf("Actual Packet Length = %d\n",pkthdr.len);
   
-    //Second read for packet itself
     read(pcap_fd, packet_buffer,pkthdr.len);
 
-    //Read ethernet header 
     ethhdr = (struct eth_hdr *)packet_buffer;
     printf("Ethernet Header\n");
 
-//      printf("Comparing srcmac = %s with attackermac = %s\n", eth_ntoa(&ethhdr->eth_src), eth_ntoa(&cfg_info.attacker_mac));
     if(memcmp(&ethhdr->eth_src, &cfg_info.attacker_mac, sizeof(eth_addr_t)) == 0){
       printf("   src_mac = %s\n", eth_ntoa(&ethhdr->eth_src));
       printf("   dst_mac = %s\n", eth_ntoa(&cfg_info.replay_victim_mac));
@@ -158,7 +129,6 @@ void create_att_pkt(int pcap_fd, FILE *cfg_fp){
       printf("   dst_mac = %s\n", eth_ntoa(&ethhdr->eth_dst));
     }
 
-    //Determine higher protocol
       switch(ntohs(ethhdr->eth_type)){
         case ETH_TYPE_IP:  
           read_ip(packet_buffer, &cfg_info);
@@ -172,6 +142,7 @@ void create_att_pkt(int pcap_fd, FILE *cfg_fp){
       }
 
   }
+	close_sniffer();
 }
 
 void read_ip(unsigned char *packet_buffer, struct config_data *cfg_info){
@@ -181,7 +152,6 @@ void read_ip(unsigned char *packet_buffer, struct config_data *cfg_info){
   printf("   IP\n");
   printf("      ip_len = %u\n", ntohs(iphdr->ip_len));
 
-  // Print original source and destination IPs
   uint8_t *ip_bytes = (uint8_t *)&iphdr->ip_src;
   printf("      ip_src = %u.%u.%u.%u\n",
          ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]);
@@ -190,13 +160,10 @@ void read_ip(unsigned char *packet_buffer, struct config_data *cfg_info){
   printf("      ip_dst = %u.%u.%u.%u\n",
          dst_bytes[0], dst_bytes[1], dst_bytes[2], dst_bytes[3]);
 
-  // Compare source IP with attacker IP
   if (memcmp(&iphdr->ip_src, &cfg_info->attacker_ip, sizeof(ip_addr_t)) == 0) {
-      // Replace IPs for replay
       memcpy(&iphdr->ip_src, &cfg_info->replay_attacker_ip, sizeof(ip_addr_t));
       memcpy(&iphdr->ip_dst, &cfg_info->replay_victim_ip, sizeof(ip_addr_t));
 
-      // Reprint modified source and destination IPs
       ip_bytes = (uint8_t *)&iphdr->ip_src;
       printf("      rep_src = %u.%u.%u.%u\n",
              ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]);
@@ -206,7 +173,6 @@ void read_ip(unsigned char *packet_buffer, struct config_data *cfg_info){
              dst_bytes[0], dst_bytes[1], dst_bytes[2], dst_bytes[3]);
   }
 
-  // Handle upper-layer protocols
   unsigned int true_hdr_size = iphdr->ip_hl * 4;
   switch (iphdr->ip_p) {
       case IP_PROTO_TCP:
@@ -252,34 +218,38 @@ void read_arp(unsigned char *packet_buffer){
   }
 }
 
-void read_tcp(unsigned int true_hdr_size, unsigned char *packet_buffer, struct config_data *cfg_info){
-  struct tcp_hdr *tcphdr;
-  tcphdr = (struct tcp_hdr *)(packet_buffer + ETH_HDR_LEN + true_hdr_size);
-  printf("      TCP\n");
+void read_tcp(unsigned int true_hdr_size, unsigned char *packet_buffer, struct config_data *cfg_info) {
+    struct tcp_hdr *tcphdr;
+    tcphdr = (struct tcp_hdr *)(packet_buffer + ETH_HDR_LEN + true_hdr_size);
+    printf("      TCP\n");
 
-  uint16_t src_port = ntohs(tcphdr->th_sport);
-  uint16_t dst_port = ntohs(tcphdr->th_dport);
+    uint16_t src_port = ntohs(tcphdr->th_sport);
+    uint16_t dst_port = ntohs(tcphdr->th_dport);
 
-  printf("         src_port = %u\n", src_port);
-  printf("         dst_port = %u\n", dst_port);
-  printf("         seq = %u\n", ntohl(tcphdr->th_seq));
-  printf("         ack = %u\n", ntohl(tcphdr->th_ack));
+    printf("         src_port = %u\n", src_port);
+    printf("         dst_port = %u\n", dst_port);
+    printf("         seq = %u\n", ntohl(tcphdr->th_seq));
+    printf("         ack = %u\n", ntohl(tcphdr->th_ack));
 
-  // Match against attacker port and replace
-  if (src_port == cfg_info->attacker_port && dst_port == cfg_info->victim_port) {
-      tcphdr->th_sport = htons(cfg_info->replay_attacker_port);
-      tcphdr->th_dport = htons(cfg_info->replay_victim_port);
+    if (src_port == cfg_info->attacker_port && dst_port == cfg_info->victim_port) {
+        tcphdr->th_sport = htons(cfg_info->replay_attacker_port);
+        tcphdr->th_dport = htons(cfg_info->replay_victim_port);
 
-      printf("         rep_src_port = %u\n", ntohs(tcphdr->th_sport));
-      printf("         rep_dst_port = %u\n", ntohs(tcphdr->th_dport));
-      struct ip_hdr *iphdr = (struct ip_hdr *)(packet_buffer + ETH_HDR_LEN);
-      ip_checksum(iphdr, ntohs(iphdr->ip_len));
-  
-      // Send the modified packet
-      if (send_modified_packet(packet_buffer, ntohs(iphdr->ip_len) + ETH_HDR_LEN) == 0) {
-          printf("         Packet sent\n");
-      }
-  }
+        // Update ACK number to track victim sequence
+        tcphdr->th_ack = htonl(latest_victim_seq + 1);
+        tcphdr->th_flags |= TH_ACK; // Ensure ACK flag is set
+
+        printf("         rep_src_port = %u\n", ntohs(tcphdr->th_sport));
+        printf("         rep_dst_port = %u\n", ntohs(tcphdr->th_dport));
+        printf("         new ack = %u\n", latest_victim_seq + 1);
+
+        struct ip_hdr *iphdr = (struct ip_hdr *)(packet_buffer + ETH_HDR_LEN);
+        ip_checksum(iphdr, ntohs(iphdr->ip_len));
+
+        if (send_modified_packet(packet_buffer, ntohs(iphdr->ip_len) + ETH_HDR_LEN, cfg_info) == 0) {
+            printf("   Packet sent\n");
+        }
+    }
 }
 
 void read_udp(unsigned int true_hdr_size, unsigned char *packet_buffer){
