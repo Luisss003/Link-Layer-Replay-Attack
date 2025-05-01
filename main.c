@@ -1,5 +1,6 @@
 #include <pcap.h>
 #include "pkt_trans.h"
+#include "packet_reading.h"
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {

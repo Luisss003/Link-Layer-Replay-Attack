@@ -7,6 +7,7 @@
 #include <unistd.h>
 static eth_t *eth_handle = NULL;
 
+//Create ethernet handle
 int init_eth(const char *interface) {
     eth_handle = eth_open(interface);
     if (eth_handle == NULL) {
@@ -16,6 +17,7 @@ int init_eth(const char *interface) {
     return 0;
 }
 
+//Close ethernet handle
 void cleanup_eth() {
     if (eth_handle != NULL) {
         eth_close(eth_handle);
@@ -23,6 +25,7 @@ void cleanup_eth() {
     }
 }
 
+//send modified packet given packet buffer
 int send_modified_packet(const unsigned char *buf, int len, struct config_data *cfg) {
 
     if (eth_handle == NULL) {
